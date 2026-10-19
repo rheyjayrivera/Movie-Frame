@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FRAME// An independent film archive</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Schibsted+Grotesk:wght@400;500&display=swap" rel="stylesheet">
+<script>
+tailwind.config = { theme: { extend: {
+  colors: { ink: '#1b1a19', ink2: '#252321', paper: '#ece6da', mute: '#968f83', brass: '#b99a5b' },
+  fontFamily: { serif: ['"Instrument Serif"', 'Georgia', 'serif'], sans: ['"Schibsted Grotesk"', 'system-ui', 'sans-serif'] }
+}}}
+</script>
+<style>
+  :focus-visible { outline: 2px solid #b99a5b; outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body class="bg-ink text-paper font-sans antialiased">
+
+<header class="px-5 md:px-12 py-6 flex items-center justify-between gap-6 border-b border-paper/10">
+  <a href="." class="font-serif text-3xl tracking-tight">FRAME<span class="text-brass">//</span></a>
+  <input id="q" type="search" placeholder="Search by title" aria-label="Search by title"
+    class="bg-transparent border-b border-paper/30 focus:border-brass outline-none text-sm py-1 w-40 sm:w-64 placeholder:text-mute">
+</header>
+
+<main>
+  <section id="featured" class="px-5 md:px-12 pt-12 md:pt-20 pb-6"></section>
+
+  <section class="px-5 md:px-12 pt-16 pb-24">
+    <div class="flex flex-wrap items-baseline justify-between gap-4 border-t border-paper/10 pt-6 mb-10">
+      <h2 class="font-serif text-4xl md:text-5xl">The collection <span id="count" class="text-mute text-xl italic ml-2"></span></h2>
+      <nav id="genres" class="flex flex-wrap gap-x-6 gap-y-2 text-sm" aria-label="Filter by genre"></nav>
+    </div>
+
+    <div id="grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-5 gap-y-12"></div>
+
+    <div id="empty" class="hidden py-24 max-w-xl">
+      <p id="emptyTitle" class="font-serif text-5xl md:text-7xl leading-none">Nothing in frame.</p>
+      <p id="emptyText" class="text-mute mt-5"></p>
+      <button id="reset" class="mt-6 border-b border-brass text-brass pb-1 text-sm">Clear search and filters</button>
+    </div>
+  </section>
+</main>
+
+<footer class="px-5 md:px-12 py-8 border-t border-paper/10 text-mute text-sm">
+  FRAME// catalogues films by poster and notes only. Nothing here plays, streams, or sells.
+</footer>
+
+<!-- Details panel -->
+<div id="panel" class="hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Film details">
+  <div id="backdrop" class="absolute inset-0 bg-black/70"></div>
+  <aside id="sheet" class="absolute right-0 top-0 h-full w-full md:w-[540px] bg-ink border-l border-paper/10 overflow-y-auto p-6 md:p-10 translate-x-full transition-transform duration-300">
+    <button id="close" class="text-sm text-mute hover:text-paper mb-6">Close</button>
+    <div id="detail"></div>
+  </aside>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let state = { q: '', genre: '' }, movies = [], genres = [], featured = null, timer;
+
+const poster = (m, extra = '') => `
+  <div class="relative bg-ink2 aspect-[2/3] overflow-hidden ${extra}">
+    <span class="absolute inset-0 p-4 flex items-end font-serif text-2xl text-paper/30">${esc(m.title)}</span>
+    <img src="${esc(m.poster_url)}" alt="Poster for ${esc(m.title)}" loading="lazy" onerror="this.remove()" class="relative w-full h-full object-cover">
+  </div>`;
+
+async function load(first = false) {
+  try {
+    const res = await fetch('movies.php?' + new URLSearchParams(state));
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    movies = data.movies;
+    if (first) { genres = data.genres; featured = data.featured; renderFeatured(); }
+    renderGenres(); renderGrid();
+  } catch (err) {
+    movies = []; renderGrid(true);
+  }
+}
+
+function renderFeatured() {
+  const f = featured, el = $('#featured');
+  if (!f) { el.remove(); return; }
+  el.innerHTML = `
+    <div class="grid grid-cols-12 gap-y-8 items-end">
+      <div class="col-span-12 md:col-span-7 md:pr-10 order-2 md:order-1">
+        <p class="text-brass text-sm mb-4">Latest in the archive</p>
+        <h1 class="font-serif text-6xl sm:text-7xl lg:text-[9rem] leading-[0.9] tracking-tight">${esc(f.title)}</h1>
+        <p class="font-serif italic text-2xl text-mute mt-6">${esc(f.director)}, ${esc(f.release_year)}</p>
+        <p class="mt-6 max-w-md leading-relaxed text-paper/80">${esc(f.synopsis)}</p>
+        <button id="openFeatured" class="mt-8 border-b border-brass text-brass pb-1 text-sm">Read the entry</button>
+      </div>
+      <div class="col-span-9 sm:col-span-6 md:col-span-4 md:col-start-9 order-1 md:order-2">
+        <button id="posterFeatured" class="block w-full text-left" aria-label="Open ${esc(f.title)}">${poster(f)}</button>
+      </div>
+    </div>`;
+  $('#openFeatured').onclick = $('#posterFeatured').onclick = () => openPanel(f);
+}
+
+function renderGenres() {
+  const link = (label, val) => `<button data-genre="${esc(val)}" class="pb-0.5 border-b ${state.genre === val ? 'border-brass text-brass' : 'border-transparent text-mute hover:text-paper'}">${esc(label)}</button>`;
+  $('#genres').innerHTML = link('All', '') + genres.map(g => link(g, g)).join('');
+}
+
+function renderGrid(failed = false) {
+  const grid = $('#grid'), empty = $('#empty');
+  $('#count').textContent = failed ? '' : `${movies.length} ${movies.length === 1 ? 'film' : 'films'}`;
+  grid.innerHTML = movies.map((m, i) => `
+    <button data-i="${i}" class="group text-left block even:mt-8 lg:even:mt-12">
+      ${poster(m, 'group-hover:outline group-hover:outline-1 group-hover:outline-brass group-hover:outline-offset-4 transition-all')}
+      <h3 class="font-serif text-2xl mt-3 leading-tight">${esc(m.title)}</h3>
+      <p class="text-mute text-sm">${esc(m.release_year)}, ${esc(m.genre)}</p>
+    </button>`).join('');
+  empty.classList.toggle('hidden', movies.length > 0);
+  if (!movies.length) {
+    $('#emptyTitle').textContent = failed ? 'The archive is closed.' : 'Nothing in frame.';
+    $('#emptyText').textContent = failed
+      ? 'We could not reach the database. Check that MySQL is running in XAMPP, then reload.'
+      : 'No film matches that search. Try a shorter title or choose another genre.';
+    $('#reset').classList.toggle('hidden', failed);
+  }
+}
+
+function openPanel(m) {
+  $('#detail').innerHTML = `
+    <div class="max-w-[280px]">${poster(m)}</div>
+    <h2 class="font-serif text-5xl leading-none mt-8">${esc(m.title)}</h2>
+    <p class="font-serif italic text-2xl text-mute mt-3">${esc(m.release_year)}, ${esc(m.genre)}</p>
+    <p class="mt-6 text-sm text-mute">Directed by</p>
+    <p class="text-lg">${esc(m.director)}</p>
+    <p class="mt-6 leading-relaxed text-paper/80">${esc(m.synopsis)}</p>`;
+  $('#panel').classList.remove('hidden');
+  requestAnimationFrame(() => $('#sheet').classList.remove('translate-x-full'));
+  $('#close').focus();
+}
+function closePanel() {
+  $('#sheet').classList.add('translate-x-full');
+  setTimeout(() => $('#panel').classList.add('hidden'), 300);
+}
+
+$('#q').addEventListener('input', e => {
+  clearTimeout(timer);
+  timer = setTimeout(() => { state.q = e.target.value.trim(); load(); }, 250);
+});
+$('#genres').addEventListener('click', e => {
+  const b = e.target.closest('[data-genre]'); if (!b) return;
+  state.genre = b.dataset.genre; load();
+});
+$('#grid').addEventListener('click', e => {
+  const b = e.target.closest('[data-i]'); if (b) openPanel(movies[b.dataset.i]);
+});
+$('#reset').onclick = () => { state = { q: '', genre: '' }; $('#q').value = ''; load(); };
+$('#close').onclick = $('#backdrop').onclick = closePanel;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#panel').classList.contains('hidden')) closePanel(); });
+
+load(true);
+</script>
+</body>
+</html>
